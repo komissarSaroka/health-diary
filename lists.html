@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Списки · Health Diary</title>
+<style>
+*{box-sizing:border-box}
+body{font:15px system-ui,-apple-system,sans-serif;background:#f3f4f5;color:#282d31;margin:0}
+main{max-width:1260px;margin:0 auto;padding:22px 20px 65px}
+.header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:29px;margin:4px 0}h2{font-size:18px;margin:0}
+.nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button,.nav a{font:inherit;cursor:pointer;background:white;border:1px solid #cbd1d5;border-radius:9px;padding:9px 12px;color:#282d31;text-decoration:none}
+button:hover,.nav a:hover{background:#ebedef}
+#status{font-size:13px;color:#747c83;min-height:18px;margin:11px 0}
+.hidden{display:none!important}
+.login{max-width:430px;background:white;border:1px solid #dfe3e6;border-radius:15px;padding:20px;margin:45px auto}
+.login input{width:100%;padding:12px;border:1px solid #cbd1d5;border-radius:9px;margin:6px 0 12px}
+.login p{color:#747c83;font-size:13px}
+.login button{margin-right:7px}
+.lists-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start;margin-top:14px}
+.list-col{--done:#b64040;min-width:0;background:#fff;border:1px solid #dfe3e6;border-radius:14px;overflow:hidden;min-height:245px}
+.list-col[data-category="Life"]{--done:#358d59}
+.list-col[data-category="MSA"]{--done:#278dc0}
+.list-col[data-category="Buy"]{--done:#df8628}
+.list-head{padding:17px 16px;border-bottom:1px solid #e5e8ea;background:#fbfbfb}
+.list-head h2{font-size:17px;line-height:1.2}
+.list-items{padding:10px 12px 4px;min-height:85px}
+.list-item{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #f0f1f2}
+.list-item:last-child{border:0}
+.list-item input[type=checkbox]{appearance:none;flex:0 0 18px;width:18px;height:18px;margin:2px 0 0;border:1.5px solid #c0c6cb;border-radius:5px;background:white;cursor:pointer;position:relative}
+.list-item input[type=checkbox]:checked{background:var(--done);border-color:var(--done)}
+.list-item input[type=checkbox]:checked:after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid white;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.list-text{flex:1;min-width:0;overflow-wrap:anywhere;line-height:1.45}
+.list-item.done .list-text{text-decoration:line-through;text-decoration-color:var(--done);text-decoration-thickness:2px;color:var(--done)}
+.list-remove{flex:0 0 22px;width:22px;height:22px;border:0;background:transparent;color:#b2b7bb;padding:0;border-radius:5px;font-size:20px;line-height:1}
+.list-remove:hover{color:#be4242;background:#fff1f0}
+.list-add{display:flex;align-items:center;gap:6px;padding:13px 12px 15px;border-top:1px solid #eff0f1}
+.list-add input{min-width:0;flex:1;font:inherit;padding:10px;border:1px solid #d4dade;border-radius:8px;outline:0;background:#fff}
+.list-add input:focus{border-color:#838b92}
+.list-add button{flex:0 0 37px;height:39px;padding:0;font-size:23px;line-height:1;color:#50585e}
+button:disabled,input:disabled{cursor:wait;opacity:.55}
+@media(max-width:850px){.lists-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){main{padding:14px 11px 40px}.lists-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.list-head{padding:13px 10px}.list-items{padding:6px 9px}.list-add{padding:9px 7px;gap:4px}.list-add input{padding:8px 6px;font-size:13px}.list-add button{flex-basis:30px;height:35px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.79.0/dist/umd/supabase.min.js"></script>
+</head><body><main>
+<div class="header"><h1>Списки</h1><nav class="nav"><a href="./">Дневник</a><a href="./medical.html">Медосмотры</a><a href="./gallery.html">Галерея</a><button id="logout" type="button">Выйти</button></nav></div>
+<p id="status" role="status" aria-live="polite">Подключение…</p>
+<section id="login" class="login hidden"><h2>Войти</h2><p>Используй данные входа от дневника.</p><input type="email" id="email" placeholder="Email" autocomplete="email"><input type="password" id="password" placeholder="Пароль" autocomplete="current-password"><button id="passwordLogin" type="button">Войти</button><button id="send" type="button">Ссылка на email</button><p id="loginMessage" role="status"></p></section>
+<section id="app" class="hidden"><div class="lists-grid" id="listsGrid"></div></section>
+</main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const db=window.supabase.createClient('https://eqfklqcbemutyninqcid.supabase.co','sb_publishable_2xFw2pDkMd_QlQTn67OZWA_NmERmQHV');
+const categories=['RedCore','Life','MSA','Buy'];
+let user=null,lastUserId=null,items=[],busy=new Set();
+function status(value){$('status').textContent=value}
+function buildBoard(){
+ const root=$('listsGrid');root.replaceChildren();
+ for(const cat of categories){
+  const col=document.createElement('section');col.className='list-col';col.dataset.category=cat;
+  const head=document.createElement('div');head.className='list-head';const title=document.createElement('h2');title.textContent=cat;head.append(title);
+  const list=document.createElement('div');list.className='list-items';list.dataset.list=cat;
+  const form=document.createElement('form');form.className='list-add';form.setAttribute('aria-label','Добавить пункт в '+cat);
+  const input=document.createElement('input');input.type='text';input.placeholder='Новый пункт';input.maxLength=1000;input.required=true;input.setAttribute('aria-label','Новый пункт для '+cat);
+  const add=document.createElement('button');add.type='submit';add.textContent='+';add.title='Добавить пункт';add.setAttribute('aria-label','Добавить пункт в '+cat);
+  form.append(input,add);form.onsubmit=e=>{e.preventDefault();addItem(cat,input,add)};
+  col.append(head,list,form);root.append(col)
+ }
+ renderLists();
+}
+function renderLists(){
+ for(const cat of categories){
+  const host=document.querySelector('[data-list="'+cat+'"]');if(!host)continue;
+  host.replaceChildren();
+  for(const item of items.filter(x=>x.category===cat)){
+   const row=document.createElement('div');row.className='list-item';row.classList.toggle('done',item.is_done);
+   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=item.is_done;checkbox.disabled=busy.has(item.id);checkbox.setAttribute('aria-label','Выполнено: '+item.content);
+   checkbox.onchange=()=>toggleItem(item,checkbox.checked);
+   const content=document.createElement('span');content.className='list-text';content.textContent=item.content;
+   const remove=document.createElement('button');remove.className='list-remove';remove.type='button';remove.textContent='×';remove.title='Удалить пункт';remove.disabled=busy.has(item.id);remove.setAttribute('aria-label','Удалить '+item.content);remove.onclick=()=>removeItem(item);
+   row.append(checkbox,content,remove);host.append(row)
+  }
+ }
+}
+async function loadItems(){
+ if(!user)return;status('Загрузка списков…');
+ const {data,error}=await db.from('list_items').select('id,category,content,is_done,created_at').eq('user_id',user.id).order('created_at',{ascending:true});
+ if(error){status('Ошибка загрузки: '+error.message);return}
+ items=data||[];renderLists();status('')
+}
+async function addItem(cat,input,button){
+ if(!user)return;const content=input.value.trim();if(!content)return;
+ button.disabled=true;input.disabled=true;
+ try{
+  const {data,error}=await db.from('list_items').insert({user_id:user.id,category:cat,content}).select('id,category,content,is_done,created_at').single();
+  if(error)throw error;
+  items.push(data);input.value='';renderLists();status('')
+ }catch(e){status('Ошибка добавления: '+e.message)}
+ finally{button.disabled=false;input.disabled=false;input.focus()}
+}
+async function toggleItem(item,done){
+ if(!user||busy.has(item.id))return;busy.add(item.id);const old=item.is_done;item.is_done=done;renderLists();
+ try{
+  const {error}=await db.from('list_items').update({is_done:done}).eq('id',item.id).eq('user_id',user.id);
+  if(error)throw error;status('')
+ }catch(e){item.is_done=old;status('Ошибка сохранения: '+e.message)}
+ finally{busy.delete(item.id);renderLists()}
+}
+async function removeItem(item){
+ if(!user||busy.has(item.id))return;busy.add(item.id);renderLists();
+ try{
+  const {error}=await db.from('list_items').delete().eq('id',item.id).eq('user_id',user.id);
+  if(error)throw error;
+  items=items.filter(x=>x.id!==item.id);status('')
+ }catch(e){status('Ошибка удаления: '+e.message)}
+ finally{busy.delete(item.id);renderLists()}
+}
+$('logout').onclick=()=>db.auth.signOut();
+$('passwordLogin').onclick=async()=>{
+ const email=$('email').value.trim(),password=$('password').value;
+ if(!email||!password){$('loginMessage').textContent='Введи email и пароль';return}
+ const button=$('passwordLogin');button.disabled=true;$('loginMessage').textContent='Вход…';
+ try{const {error}=await db.auth.signInWithPassword({email,password});if(error)throw error;$('loginMessage').textContent=''}
+ catch(e){$('loginMessage').textContent='Ошибка: '+e.message}
+ finally{button.disabled=false}
+};
+$('password').addEventListener('keydown',e=>{if(e.key==='Enter')$('passwordLogin').click()});
+$('send').onclick=async()=>{const email=$('email').value.trim();if(!email)return;const {error}=await db.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});$('loginMessage').textContent=error?error.message:'Проверь email'};
+let authenticating=false;
+async function auth(){
+ if(authenticating)return;authenticating=true;
+ try{
+  const {data,error}=await db.auth.getSession();if(error)throw error;
+  const current=data?.session?.user||null;user=current;
+  $('login').classList.toggle('hidden',!!current);$('app').classList.toggle('hidden',!current);
+  if(current&&current.id!==lastUserId){lastUserId=current.id;buildBoard();await loadItems()}
+  if(!current){lastUserId=null;items=[];status('')}
+ }catch(e){status('Ошибка входа: '+e.message)}
+ finally{authenticating=false}
+}
+db.auth.onAuthStateChange(()=>setTimeout(auth,0));auth();
+})();
+</script></body></html>
